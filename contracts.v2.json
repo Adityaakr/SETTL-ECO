@@ -1,0 +1,19 @@
+{
+  "network": "hashkeyTestnet",
+  "chainId": "133",
+  "deployer": "0x35647dE2F4076e73694EFd650468597cc9591D11",
+  "contracts": {
+    "DemoUSDC": "0x5aCeD1dCe2dEbF2a2726Bc5c507984edddD72883",
+    "ComplianceGate": "0x2C04F693daACeEE882B52891cbE3BD00BDA8Fc72",
+    "ReceivableRegistry": "0x259d4611678E8FA610E43aC61e4ACf6E4F05758b",
+    "FundingPool": "0x1D933D1e6b9F9EA5BAa2E9E2d43e6034487778A5",
+    "AdvanceEngine": "0x37b61541fB016Ef1ABb74D5531066154176a8C0f",
+    "HspSettlementAdapter": "0x516086a3eF35D750299d5566deA0720b2e76dEa7",
+    "SettlementRouter": "0x383A93d79c2658B8B067010aA1E4146f12F05848",
+    "DisputeEscrow": "0x3cfE0AFE347EAd3e0e6cBFF4D8C59F13E97F6b4b",
+    "Reputation": "0xcdd10BFb0b82379865aDe4459219D1ef58b0C96C",
+    "Treasury": "0x35647dE2F4076e73694EFd650468597cc9591D11",
+    "ProtocolFeeBps": "50"
+  },
+  "deployedAt": "2026-04-15T01:07:36.476Z"
+}

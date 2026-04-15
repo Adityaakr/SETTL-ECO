@@ -1,0 +1,55 @@
+@import url("https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 38 21% 95%;
+    --foreground: 18 23% 15%;
+    --card: 38 38% 97%;
+    --card-foreground: 18 23% 15%;
+    --popover: 38 38% 97%;
+    --popover-foreground: 18 23% 15%;
+    --primary: 133 63% 39%;
+    --primary-foreground: 48 33% 97%;
+    --secondary: 33 24% 92%;
+    --secondary-foreground: 18 23% 15%;
+    --muted: 33 24% 92%;
+    --muted-foreground: 19 16% 41%;
+    --accent: 33 24% 92%;
+    --accent-foreground: 18 23% 15%;
+    --destructive: 0 41% 46%;
+    --destructive-foreground: 48 33% 97%;
+    --border: 29 32% 80%;
+    --input: 29 32% 80%;
+    --ring: 133 63% 39%;
+    --radius: 1rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
+  }
+}
+
+@layer utilities {
+  .hero-grid {
+    background-image:
+      linear-gradient(rgba(230, 222, 211, 0.55) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(230, 222, 211, 0.55) 1px, transparent 1px);
+    background-size: 40px 40px;
+    background-position: center;
+  }
+}
