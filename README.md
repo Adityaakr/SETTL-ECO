@@ -1,152 +1,221 @@
 # SETTL-ECO
 
-SETTL-ECO is a HashKey-native receivables financing and settlement stack. It combines a React operator surface, a Hardhat contract suite, compliance-aware gating, buyer acknowledgement, capital deployment, settlement routing, disputes, and reputation updates into one end-to-end flow.
+SETTL-ECO is a receivables financing and settlement operating stack built for HashKey Chain. It combines a role-aware React app, a Hardhat contract suite, compliance gating, buyer acknowledgement, funding, settlement waterfalls, disputes, and reputation tracking into one end-to-end system.
 
-This repo contains:
+This repository is structured as a real testnet implementation rather than a pitch deck. The frontend, contracts, deployment scripts, smoke flow, and seeded demo surfaces all map to the same core receivable lifecycle.
 
-- a Vite/React frontend for seller, buyer, LP, and admin workspaces
-- Solidity v2 contracts for the HashKey lifecycle
-- deployment and smoke-test scripts for HashKey testnet
-- demo mode and live mode runtime wiring
+## Architecture
 
-## What The Product Does
+SETTL-ECO is split into four layers:
 
-SETTL-ECO turns a receivable into an operational workflow:
+1. Presentation layer: a React + Vite application that exposes seller, buyer, LP, risk, settlement, analytics, and admin workspaces.
+2. Application layer: typed domain models, hooks, and the `SettlProvider` runtime that coordinate demo state and live contract state.
+3. Protocol layer: Solidity contracts for compliance, receivables, financing, settlement, disputes, and reputation.
+4. Integration layer: HashKey chain config, Privy wallet auth, official HashKey KYC support, Safe endpoints, and the HSP adapter boundary.
 
-1. A seller creates a receivable with amount, due date, requested advance, holdback, and document hash.
-2. A buyer acknowledges or rejects it.
-3. Compliance approval determines whether the receivable can move into finance eligibility.
-4. A liquidity provider funds the advance.
-5. The buyer settles the receivable through the settlement router.
-6. Funds are split into protocol fee, LP repayment, seller net proceeds, and optional holdback.
-7. Reputation updates and dispute handling remain onchain and auditable.
+### High-level flow
 
-## HashKey End-To-End Flow
+```text
+Seller
+  -> ComplianceGate
+  -> ReceivableRegistryV2.createReceivable
+Buyer
+  -> ReceivableRegistryV2.acknowledgeReceivable
+LP
+  -> AdvanceEngineV2.fundReceivable
+Buyer
+  -> SettlementRouterV2.settleReceivable
+SettlementRouterV2
+  -> treasury fee
+  -> LP repayment
+  -> seller proceeds
+  -> HspSettlementAdapter request/complete
+  -> ReputationV2 update
+Optional
+  -> DisputeEscrow.openDispute / resolveDispute
+  -> SettlementRouterV2.releaseHoldback
+```
+
+## System Design
+
+### Frontend architecture
+
+The app shell is centered around [src/App.tsx](/Users/adityakrx/SETTL./src/App.tsx) and [src/components/layout/AppLayout.tsx](/Users/adityakrx/SETTL./src/components/layout/AppLayout.tsx).
+
+Key frontend pieces:
+
+- `src/context/settl-context.tsx`: main orchestration layer for mode switching, wallet-aware actions, and derived metrics
+- `src/domain/models.ts`: shared types for receivables, settlements, funding positions, disputes, users, and runtime mode
+- `src/data/demo.ts`: seeded demo entities and lifecycle states
+- `src/lib/hashkey-config.ts`: HashKey chain definitions, explorer helpers, and demo/live mode selection
+- `src/lib/contracts.ts`: frontend contract address registry
+- `src/lib/hashkey-integrations.ts`: Safe, KYC, and HSP endpoint wiring
+- `src/lib/hsp-adapter.ts`: adapter interface that keeps mock and live settlement modes behind one API
+- `src/pages/app/*`: workspace-specific routes
+
+The application is designed to run in two modes:
+
+- `demo`: seeded data with simulated settlement and transaction states
+- `live`: wallet-connected writes and reads against deployed HashKey contracts
+
+### Contract architecture
+
+The v2 contract system is intentionally modular:
+
+- `ComplianceGate`: source of truth for whether an account can originate, acknowledge, fund, or settle
+- `ReceivableRegistryV2`: stores the receivable record and status machine
+- `AdvanceEngineV2`: funds finance-eligible receivables and records repayment expectations
+- `SettlementRouterV2`: receives buyer payment and executes the onchain waterfall
+- `HspSettlementAdapter`: records settlement request/completion against a clean adapter boundary
+- `DisputeEscrow`: dispute open/resolve flow
+- `ReputationV2`: updates seller, buyer, and provider performance state
+- `FundingPoolV2`: included in deployment topology for pool-based capital design, even though the current tested lifecycle funds via `AdvanceEngineV2`
+- `DemoUSDC`: test asset used for local and testnet flows
+
+### Integration architecture
+
+SETTL-ECO is opinionated about HashKey-native surfaces:
+
+- chain target: HashKey testnet by default, with mainnet config available
+- wallet/auth: Privy + Wagmi + viem
+- compliance path: official HashKey KYC SBT support when configured, otherwise local self-serve fallback
+- treasury path: HashKey Safe URLs exposed in settings and dashboard proof points
+- settlement bridge: HSP adapter boundary keeps external rail complexity outside the core contract API
+
+## Receivable Lifecycle
+
+The runtime and contracts follow this lifecycle:
+
+1. `Issued`
+2. `BuyerAcknowledged`
+3. `FinanceEligible`
+4. `Funded`
+5. `Paid`
+6. `Cleared`
+7. `Overdue`
+8. `Disputed`
+9. `Rejected`
+
+Important gates:
+
+- A seller must be approved before origination.
+- A buyer must be approved before acknowledgement or settlement.
+- Financing only opens after buyer acknowledgement.
+- Settlement can include protocol fees, repayment, seller proceeds, and holdback.
+- Disputes can interrupt the normal path and restore a receivable back to `FinanceEligible` or `Paid`.
+
+## End-to-End HashKey Flow
 
 ### 1. Compliance
 
-`ComplianceGate` supports two paths:
+`ComplianceGate` supports:
 
-- official HashKey KYC sync when `VITE_HASHKEY_KYC_SBT_ADDRESS` is configured
-- self-serve fallback in local/test flows when no official KYC contract is wired
+- official HashKey KYC sync from an SBT contract
+- fallback self-approval for local and test flows when the SBT is not configured
 
-The frontend surfaces the official HashKey KYC portal and reads live KYC state when available.
+Frontend support for this lives in:
 
-### 2. Receivable Origination
+- [src/lib/hashkey-kyc.ts](/Users/adityakrx/SETTL./src/lib/hashkey-kyc.ts)
+- [src/pages/app/Settings.tsx](/Users/adityakrx/SETTL./src/pages/app/Settings.tsx)
 
-`ReceivableRegistryV2.createReceivable(...)` stores:
+### 2. Origination
 
-- seller
-- buyer
-- receivable amount
+The seller creates a receivable with:
+
+- buyer address
+- amount
 - requested advance
 - holdback basis points
 - issue and due dates
-- document metadata hash
+- metadata hash
 - reference code
 
-Status progression starts at `Issued`.
+This is handled by `ReceivableRegistryV2.createReceivable(...)`.
 
-### 3. Buyer Acknowledgement
+### 3. Buyer acknowledgement
 
-`ReceivableRegistryV2.acknowledgeReceivable(...)` is buyer-only.
+The buyer explicitly approves or rejects the receivable via `acknowledgeReceivable(...)`.
 
-- rejection moves the receivable to `Rejected`
-- approval moves it to `BuyerAcknowledged`
-- if both sides are compliant, it advances to `FinanceEligible`
+- reject -> `Rejected`
+- approve -> `BuyerAcknowledged`
+- approve with both parties compliant -> `FinanceEligible`
 
-### 4. Advance Funding
+### 4. Funding
 
-`AdvanceEngineV2.fundReceivable(...)` lets an approved LP fund a finance-eligible receivable.
+An approved LP funds the advance via `AdvanceEngineV2.fundReceivable(...)`.
 
-- the LP transfers DemoUSDC to the seller
-- the registry marks the receivable as `Funded`
+Effects:
+
+- DemoUSDC transfers from LP to seller
+- expected repayment is stored
+- receivable becomes `Funded`
 - reputation records financing history
-- expected repayment is derived from the requested advance plus yield
 
-Current default yield in the contract is `600` bps.
+### 5. Settlement
 
-### 5. Settlement Routing
+The buyer settles through `SettlementRouterV2.settleReceivable(...)`.
 
-`SettlementRouterV2.settleReceivable(...)` accepts buyer payment and executes the waterfall:
+Waterfall:
 
 - protocol fee to treasury
-- LP repayment if the receivable was funded
-- seller net transfer
-- holdback retained inside router accounting until release
-- HSP settlement request + completion record through `HspSettlementAdapter`
-- reputation updates based on timing and cleared status
+- LP repayment if funded
+- seller net amount
+- holdback retained in settlement accounting if configured
+- HSP adapter request/completion record
+- reputation update
 
-Current deployed protocol fee is `50` bps.
+### 6. Holdback release
 
-### 6. Holdback Release
+If holdback exists, the seller or owner can release it later through `releaseHoldback(...)`, which moves the receivable to `Cleared`.
 
-`SettlementRouterV2.releaseHoldback(...)` can clear retained holdback to the seller and finalize the receivable as `Cleared`.
+### 7. Dispute path
 
-### 7. Disputes
+Buyer or seller can open a dispute through `DisputeEscrow`.
 
-`DisputeEscrow` allows seller or buyer to:
+Resolution can:
 
-- open a dispute
-- push the receivable into `Disputed`
-- resolve it back to `Paid` or `FinanceEligible`
+- restore the receivable to `FinanceEligible`
+- or move it back to `Paid`
 
-### 8. Reputation
+## Repository Layout
 
-`ReputationV2` tracks:
+### App
 
-- financed volume
-- settled volume
-- on-time settlements
-- dispute count
-- cleared receivables
-- recommended advance bands
+- `src/App.tsx`: top-level providers and router
+- `src/context/settl-context.tsx`: state orchestration for demo and live flows
+- `src/pages/Landing.tsx`: marketing and overview narrative
+- `src/pages/Connect.tsx`: role routing and wallet entry
+- `src/pages/app/Dashboard.tsx`: executive and judge walkthrough surface
+- `src/pages/app/Settlements.tsx`: maturity and settlement monitoring
+- `src/pages/app/Settings.tsx`: runtime configuration, KYC, Safe, and contract wiring
 
-## Contract Stack
-
-The current v2 stack is:
+### Contracts
 
 - `contracts/v2/ComplianceGate.sol`
 - `contracts/v2/ReceivableRegistryV2.sol`
-- `contracts/v2/FundingPoolV2.sol`
 - `contracts/v2/AdvanceEngineV2.sol`
-- `contracts/v2/HspSettlementAdapter.sol`
 - `contracts/v2/SettlementRouterV2.sol`
+- `contracts/v2/HspSettlementAdapter.sol`
 - `contracts/v2/DisputeEscrow.sol`
 - `contracts/v2/ReputationV2.sol`
+- `contracts/v2/FundingPoolV2.sol`
 - `contracts/DemoUSDC.sol`
 
-`FundingPoolV2` exists in the deployment topology, although the tested lifecycle currently routes LP funding directly through `AdvanceEngineV2`.
+### Scripts
 
-## Frontend Surface
+- `scripts/deploy-hashkey-v2.cjs`: deploys the full v2 stack and writes `contracts.v2.json`
+- `scripts/live-smoke-hashkey-v2.cjs`: runs a testnet lifecycle smoke path
+- `scripts/verify-contracts.cjs` and related helpers: verification and maintenance utilities
 
-The app runs as a role-aware operating system with:
+### Tests
 
-- landing and connect flows
-- seller workspace
-- buyer workspace
-- capital workspace
-- risk workspace
-- settlement workspace
-- admin workspace
-- analytics, activity, and settings
-
-Live mode uses:
-
-- Privy embedded wallet auth
-- Wagmi + viem
-- HashKey testnet chain configuration
-- live contract reads and writes when addresses are configured
-
-Demo mode keeps the entire UX interactive with seeded users, receivables, disputes, settlements, and analytics.
+- `test/v2.lifecycle.cjs`: local Hardhat lifecycle test covering create -> acknowledge -> fund -> settle -> dispute resolution
 
 ## Runtime Modes
 
 ### Demo mode
 
-Use demo mode when you want the UI without live contract dependencies.
-
-Recommended env:
+Use demo mode when you want a deterministic product walkthrough with no contract dependency.
 
 ```bash
 VITE_SETTL_MODE=demo
@@ -155,56 +224,50 @@ VITE_HSP_MODE=mock
 
 ### Live mode
 
-Use live mode when you want to connect a wallet and interact with deployed HashKey contracts.
-
-Recommended env:
+Use live mode when you want wallet-backed writes on HashKey testnet.
 
 ```bash
 VITE_SETTL_MODE=live
 VITE_HSP_MODE=live
 ```
 
-## Local Setup
+Live mode depends on:
 
-```bash
-cp .env.example .env
-npm install
-npm run build
-npm run dev
-```
-
-App URL defaults to Vite local dev output.
+- Privy configuration
+- contract addresses
+- RPC access
+- optional official HashKey KYC address
+- optional HSP endpoint
 
 ## Environment Variables
 
-### Chain and RPC
+Core variables in [.env.example](/Users/adityakrx/SETTL./.env.example):
 
-- `VITE_HASHKEY_TESTNET_CHAIN_ID=133`
+### Chain
+
+- `VITE_HASHKEY_TESTNET_CHAIN_ID`
 - `VITE_HASHKEY_TESTNET_RPC_URL`
 - `VITE_HASHKEY_TESTNET_EXPLORER`
-- `VITE_HASHKEY_MAINNET_CHAIN_ID=177`
+- `VITE_HASHKEY_MAINNET_CHAIN_ID`
 - `VITE_HASHKEY_MAINNET_RPC_URL`
 - `VITE_HASHKEY_MAINNET_EXPLORER`
 - `HASHKEY_TESTNET_RPC_URL`
 - `HASHKEY_MAINNET_RPC_URL`
+
+### Wallet/Auth
+
+- `VITE_PRIVY_APP_ID`
+- `PRIVY_APP_SECRET`
 
 ### Deployment
 
 - `DEPLOYER_PRIVATE_KEY`
 - `HASHKEY_EXPLORER_API_KEY`
 
-### Privy
-
-- `VITE_PRIVY_APP_ID`
-- `PRIVY_APP_SECRET`
-
-### HSP
+### Settlement / Compliance integrations
 
 - `VITE_HSP_API_BASE_URL`
 - `HSP_API_KEY`
-
-### HashKey integrations
-
 - `VITE_HASHKEY_KYC_SBT_ADDRESS`
 - `HASHKEY_KYC_SBT_ADDRESS`
 - `VITE_HASHKEY_KYC_PORTAL_URL`
@@ -212,7 +275,7 @@ App URL defaults to Vite local dev output.
 - `VITE_HASHKEY_SAFE_MAINNET_URL`
 - `VITE_HASHKEY_SAFE_TX_SERVICE_URL`
 
-### Contract addresses
+### Deployed contracts
 
 - `VITE_DEMO_USDC_ADDRESS`
 - `VITE_COMPLIANCE_GATE_ADDRESS`
@@ -225,12 +288,21 @@ App URL defaults to Vite local dev output.
 - `VITE_HSP_SETTLEMENT_ADAPTER_ADDRESS`
 - `VITE_DISPUTE_ESCROW_ADDRESS`
 
-## NPM Scripts
+## Local Setup
+
+```bash
+cp .env.example .env
+npm install
+npm run test
+npm run build
+npm run dev
+```
+
+Useful scripts:
 
 ```bash
 npm run dev
 npm run build
-npm run lint
 npm run compile
 npm run test
 npm run deploy:hashkey:testnet
@@ -238,15 +310,9 @@ npm run deploy:hashkey:mainnet
 npm run verify
 ```
 
-Notes:
-
-- `npm run build` compiles contracts before building the frontend
-- `npm run test` runs the Hardhat test suite
-- `npm run deploy:hashkey:testnet` writes deployment output to `contracts.v2.json`
-
 ## Deployment
 
-HashKey deployment entrypoint:
+Main deployment entrypoint:
 
 ```bash
 npm run deploy:hashkey:testnet
@@ -254,32 +320,31 @@ npm run deploy:hashkey:testnet
 
 The deploy script:
 
-- deploys DemoUSDC
-- deploys the compliance, registry, funding, advance, adapter, router, dispute, and reputation contracts
-- assigns operator permissions across modules
-- writes contract addresses and metadata into `contracts.v2.json`
+- deploys the full v2 stack
+- configures inter-contract operator permissions
+- writes deployment metadata to [contracts.v2.json](/Users/adityakrx/SETTL./contracts.v2.json)
 
-## Live Smoke Flow
+## Smoke Path
 
-The repo includes a HashKey smoke script:
+Testnet smoke script:
 
 ```bash
 npx hardhat run scripts/live-smoke-hashkey-v2.cjs --network hashkeyTestnet
 ```
 
-That script performs:
+It exercises:
 
-1. self-approval in compliance fallback mode
-2. minting DemoUSDC
-3. creating a receivable
+1. compliance fallback enablement
+2. DemoUSDC minting
+3. receivable creation
 4. buyer acknowledgement
-5. advance funding
+5. funding
 6. settlement
-7. a second receivable dispute path
+7. dispute creation on a second receivable
 
-## Current HashKey Testnet Deployment
+## Current Testnet Deployment
 
-From `contracts.v2.json`:
+Latest checked deployment from [contracts.v2.json](/Users/adityakrx/SETTL./contracts.v2.json):
 
 - network: `hashkeyTestnet`
 - chainId: `133`
@@ -297,44 +362,17 @@ Contracts:
 - `SettlementRouter`: `0x383A93d79c2658B8B067010aA1E4146f12F05848`
 - `DisputeEscrow`: `0x3cfE0AFE347EAd3e0e6cBFF4D8C59F13E97F6b4b`
 - `Reputation`: `0xcdd10BFb0b82379865aDe4459219D1ef58b0C96C`
-- `Treasury`: `0x35647dE2F4076e73694EFd650468597cc9591D11`
 
-## Verified Lifecycle In Test
+## Verification Status
 
-`test/v2.lifecycle.cjs` covers:
+Current local verification status:
 
-1. compliance setup
-2. receivable creation
-3. buyer acknowledgement
-4. LP funding
-5. buyer settlement
-6. seller and LP balance effects
-7. dispute open and resolution
+- `npm run test`: passes
+- `npm run build`: passes
+- `npm run lint`: currently fails on pre-existing repository issues outside this README rewrite
 
-## Repo Map
+## Notes
 
-- `src/context/settl-context.tsx`: app orchestration across demo and live modes
-- `src/lib/hashkey-config.ts`: HashKey chain and mode configuration
-- `src/lib/hashkey-integrations.ts`: KYC, Safe, and HSP endpoint wiring
-- `src/lib/contracts.ts`: frontend contract address registry
-- `src/pages/Connect.tsx`: role-aware access routing
-- `src/pages/app/Settings.tsx`: live integrations, KYC, Safe, and faucet surface
-- `scripts/deploy-hashkey-v2.cjs`: main HashKey deployment script
-- `scripts/live-smoke-hashkey-v2.cjs`: post-deploy live flow verification
-- `contracts.v2.json`: latest deployment output
-
-## Status
-
-This repo is a strong end-to-end testnet implementation, not a finished audited production release.
-
-Known realities:
-
-- the HSP adapter keeps a clean onchain boundary and event trail, but external HSP connectivity is still adapter-driven
-- official HashKey KYC is optional unless the SBT contract is configured
-- the app supports both demo and live paths, so some UX remains dual-mode by design
-
-## Push Target
-
-The intended repository target is:
-
-`https://github.com/Adityaakr/SETTL-ECO.git`
+- The repo still contains older contracts and helper hooks from earlier product iterations.
+- The v2 path is the clearest HashKey-native implementation in this workspace.
+- The HSP integration is intentionally abstracted through an adapter boundary so the protocol stays auditable even when the external rail changes.
